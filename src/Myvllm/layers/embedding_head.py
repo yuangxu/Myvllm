@@ -41,6 +41,5 @@ class LMHead(nn.Module):
 def last_token_hidden(
     hidden_states: torch.Tensor, cu_seqlens: torch.Tensor
 ) -> torch.Tensor:
-    """Prefill：按累积长度取每条序列最后一个 token 的 hidden。"""
     ends = cu_seqlens[1:].long() - 1
     return hidden_states[ends]

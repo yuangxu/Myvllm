@@ -10,7 +10,8 @@ class ModelConfig:
     num_hidden_layers: int = 28
     num_attention_heads: int = 16
     num_key_value_heads: int = 8         # GQA：KV head 数，Q head 数的一半
-    head_dim: int = 64                   # hidden_size / num_attention_heads = 1024/16
+    # Qwen3 配置里显式给出 head_dim（可与 hidden/num_heads 不一致，如 0.6B 为 128）
+    head_dim: int = 128
     rms_norm_eps: float = 1e-6
     rope_theta: float = 1000000.0        # RoPE 基频
     max_position_embeddings: int = 32768

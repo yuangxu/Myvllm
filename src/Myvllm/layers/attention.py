@@ -40,7 +40,8 @@ class Attention(nn.Module):
         self.q_proj = Linear(hidden_size, q_out, bias=False)
         self.k_proj = Linear(hidden_size, kv_out, bias=False)
         self.v_proj = Linear(hidden_size, kv_out, bias=False)
-        self.o_proj = Linear(hidden_size, hidden_size, bias=False)
+        # HF: [hidden, num_heads * head_dim]（如 1024×2048），聚合资拼接维为 num_heads * head_dim
+        self.o_proj = Linear(num_heads * head_dim, hidden_size, bias=False)
 
         self.q_norm = RMSNorm(head_dim, eps=rms_norm_eps)
         self.k_norm = RMSNorm(head_dim, eps=rms_norm_eps)
@@ -140,7 +141,7 @@ class Attention(nn.Module):
             oi = F.scaled_dot_product_attention(qi, ki, vi, is_causal=True)
             out[s:e] = oi.squeeze(0).transpose(0, 1).contiguous()
 
-        return self.o_proj(out.reshape(t, self.hidden_size))
+        return self.o_proj(out.reshape(t, self.num_heads * self.head_dim))
 
     def _forward_decode(
         self,
@@ -173,7 +174,7 @@ class Attention(nn.Module):
             oi = F.scaled_dot_product_attention(qh, ki, vi, is_causal=False)
             out[bi] = oi.squeeze(0).squeeze(1)
 
-        return self.o_proj(out.reshape(b, self.hidden_size))
+        return self.o_proj(out.reshape(b, self.num_heads * self.head_dim))
 
     def _forward_simple_causal(
         self, x: torch.Tensor, positions: torch.Tensor
@@ -192,7 +193,43 @@ class Attention(nn.Module):
         ki = k_e.transpose(0, 1).unsqueeze(0)
         vi = v_e.transpose(0, 1).unsqueeze(0)
         o = F.scaled_dot_product_attention(qi, ki, vi, is_causal=True)
-        o = o.squeeze(0).transpose(0, 1).contiguous().reshape(t, self.hidden_size)
+        o = o.squeeze(0).transpose(0, 1).contiguous().reshape(
+            t, self.num_heads * self.head_dim
+        )
+        return self.o_proj(o)
+
+    def forward_cached(
+        self,
+        x: torch.Tensor,
+        positions: torch.Tensor,
+        layer_cache: "LayerCache",
+    ) -> torch.Tensor:
+        """带 KV cache 的前向：prefill 时 is_causal=True，decode 时 is_causal=False。"""
+        from Myvllm.kv_cache import LayerCache  # noqa: F811
+
+        t = x.shape[0]
+        q = self.q_proj(x).view(t, self.num_heads, self.head_dim)
+        k = self.k_proj(x).view(t, self.num_kv_heads, self.head_dim)
+        v = self.v_proj(x).view(t, self.num_kv_heads, self.head_dim)
+
+        q = self._apply_norm_heads(q, self.q_norm)
+        k = self._apply_norm_heads(k, self.k_norm)
+        q, k = self.rope.forward(q, k, positions)
+
+        k_full, v_full = layer_cache.append(k, v)
+
+        k_e = self._repeat_kv(k_full)
+        v_e = self._repeat_kv(v_full)
+
+        qi = q.transpose(0, 1).unsqueeze(0)
+        ki = k_e.transpose(0, 1).unsqueeze(0)
+        vi = v_e.transpose(0, 1).unsqueeze(0)
+
+        is_causal = (t == k_full.shape[0])
+        o = F.scaled_dot_product_attention(qi, ki, vi, is_causal=is_causal)
+        o = o.squeeze(0).transpose(0, 1).contiguous().reshape(
+            t, self.num_heads * self.head_dim
+        )
         return self.o_proj(o)
 
     def forward(self, x: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
