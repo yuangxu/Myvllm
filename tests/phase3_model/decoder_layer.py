@@ -18,3 +18,5 @@ Goal: 把前面写好的组件串成一个完整的 Transformer decoder 层
 - 为什么需要残差连接？去掉会怎样？
 - 这层有几个 RMSNorm？
 """
+
+

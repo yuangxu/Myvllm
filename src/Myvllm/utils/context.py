@@ -1,14 +1,33 @@
-# 全局 ForwardContext：在 model_runner 和 attention 层之间传递元数据
-# 避免把 slot_mapping/block_tables 等张量层层传参
-#
-# ForwardContext 字段：
-#   is_prefill:    bool
-#   slot_mapping:  Tensor[total_tokens]         写入 KV cache 的物理槽位
-#   cu_seqlens:    Tensor[num_seqs+1] or None   prefill 专用，序列边界累积和
-#   block_tables:  Tensor[batch, max_blocks] or None  decode 专用
-#   context_lens:  Tensor[batch] or None              decode 专用，每条序列的历史长度
-#
-# API：
-#   set_context(**kwargs)   # model_runner 在 forward 前调用
-#   get_context()           # attention 层调用
-#   reset_context()         # model_runner 在 forward 后调用
+# ForwardContext：model_runner ↔ attention，避免每层传 KV 相关张量。
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Optional
+
+import torch
+
+
+@dataclass
+class ForwardContext:
+    is_prefill: bool
+    slot_mapping: Optional[torch.Tensor] = None
+    cu_seqlens: Optional[torch.Tensor] = None
+    block_tables: Optional[torch.Tensor] = None
+    context_lens: Optional[torch.Tensor] = None
+
+
+_ctx: Optional[ForwardContext] = None
+
+
+def set_context(**kwargs: Any) -> None:
+    global _ctx
+    _ctx = ForwardContext(**kwargs)
+
+
+def get_context() -> Optional[ForwardContext]:
+    return _ctx
+
+
+def reset_context() -> None:
+    global _ctx
+    _ctx = None

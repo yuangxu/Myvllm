@@ -15,3 +15,28 @@ SiLU: silu(x) = x * sigmoid(x)，PyTorch 里有 F.silu
 - SwiGLU 和普通 FFN+ReLU 的本质区别是什么？
 - Qwen3 的线性层有没有 bias？
 """
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class MySwiGLU(nn.Module):
+	def __init__(self, hidden, intermediate):
+		super().__init__()
+		self.gate = nn.Linear(hidden, intermediate, bias= False)
+		self.up = nn.Linear(hidden, intermediate, bias=False)
+		self.down = nn.Linear(intermediate, hidden, bias=False)
+
+	def forward(self, x: torch.Tensor) -> torch.Tensor:
+		return self.down(F.silu(self.gate(x)) * self.up(x))
+
+
+if __name__ == "__main__":
+    model = MySwiGLU(256, 512)
+    x = torch.randn(2, 4, 256)
+    print(model(x).shape)  # 应该是 (2, 4, 256)
+
+
+
+
